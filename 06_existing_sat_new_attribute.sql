@@ -1,0 +1,132 @@
+
+USE DATABASE DV2_BANK_DEMO;
+
+-- =====================================================
+-- APPROACH 1: EXTEND AN EXISTING SATELLITE
+-- =====================================================
+
+-- STEP 1: Add the new attribute to the source table
+
+ALTER TABLE LANDING.CRM_CUSTOMERS
+ADD COLUMN IF NOT EXISTS CUSTOMER_SEGMENT VARCHAR;
+
+
+-- STEP 2: Add the new attribute to the existing Satellite
+-- No new Satellite is created.
+
+ALTER TABLE RAW_VAULT.SAT_CUSTOMER_CRM
+ADD COLUMN IF NOT EXISTS CUSTOMER_SEGMENT VARCHAR;
+
+
+-- STEP 3: New CRM batch arrives
+-- C001 = PREMIUM, C002 = STANDARD
+-- Earlier historical records retain NULL for this field.
+
+INSERT INTO LANDING.CRM_CUSTOMERS (
+    BATCH_ID,
+    CUSTOMER_ID,
+    EMAIL,
+    CITY,
+    SOURCE_CHANGED_AT,
+    CUSTOMER_SEGMENT
+)
+VALUES
+(7, 'C001', 'asha@example.com', 'GURUGRAM',
+ '2026-10-07 09:00:00', 'PREMIUM'),
+
+(7, 'C002', 'rohan@example.com', 'MUMBAI',
+ '2026-10-07 09:00:00', 'STANDARD');
+
+
+-- STEP 4: Load new Satellite versions
+-- Compare actual attributes to the latest version.
+-- This handles the transition from the old Hash Diff,
+-- which did not include CUSTOMER_SEGMENT.
+
+INSERT INTO RAW_VAULT.SAT_CUSTOMER_CRM (
+    CUSTOMER_HK,
+    LOAD_DTS,
+    RECORD_SOURCE,
+    HASH_DIFF,
+    SOURCE_CHANGED_AT,
+    EMAIL,
+    CITY,
+    CUSTOMER_SEGMENT
+)
+WITH INCOMING AS (
+    SELECT
+        SHA2(UPPER(TRIM(CUSTOMER_ID)),256) AS CUSTOMER_HK,
+        EMAIL,
+        CITY,
+        CUSTOMER_SEGMENT,
+        SOURCE_CHANGED_AT,
+
+        SHA2(
+            TO_JSON(ARRAY_CONSTRUCT(
+                EMAIL,
+                CITY,
+                CUSTOMER_SEGMENT
+            )),256
+        ) AS NEW_HASH_DIFF
+
+    FROM LANDING.CRM_CUSTOMERS
+    WHERE BATCH_ID = 7
+
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY CUSTOMER_HK
+        ORDER BY SOURCE_CHANGED_AT DESC
+    ) = 1
+),
+
+LATEST AS (
+    SELECT
+        CUSTOMER_HK,
+        EMAIL,
+        CITY,
+        CUSTOMER_SEGMENT
+    FROM RAW_VAULT.SAT_CUSTOMER_CRM
+
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY CUSTOMER_HK
+        ORDER BY LOAD_DTS DESC, SOURCE_CHANGED_AT DESC
+    ) = 1
+)
+
+SELECT
+    I.CUSTOMER_HK,
+    CURRENT_TIMESTAMP()::TIMESTAMP_NTZ,
+    'CRM',
+    I.NEW_HASH_DIFF,
+    I.SOURCE_CHANGED_AT,
+    I.EMAIL,
+    I.CITY,
+    I.CUSTOMER_SEGMENT
+
+FROM INCOMING I
+
+LEFT JOIN LATEST L
+    ON I.CUSTOMER_HK = L.CUSTOMER_HK
+
+WHERE L.CUSTOMER_HK IS NULL
+   OR I.EMAIL IS DISTINCT FROM L.EMAIL
+   OR I.CITY IS DISTINCT FROM L.CITY
+   OR I.CUSTOMER_SEGMENT IS DISTINCT FROM L.CUSTOMER_SEGMENT;
+
+
+-- STEP 5: Inspect complete historical data
+
+SELECT
+    H.CUSTOMER_ID,
+    S.EMAIL,
+    S.CITY,
+    S.CUSTOMER_SEGMENT,
+    S.HASH_DIFF,
+    S.LOAD_DTS
+
+FROM RAW_VAULT.SAT_CUSTOMER_CRM S
+
+JOIN RAW_VAULT.HUB_CUSTOMER H
+    ON S.CUSTOMER_HK = H.CUSTOMER_HK
+
+WHERE H.CUSTOMER_ID = 'C001'
+ORDER BY S.LOAD_DTS;
