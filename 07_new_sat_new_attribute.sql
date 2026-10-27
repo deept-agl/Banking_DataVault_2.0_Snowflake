@@ -4,6 +4,16 @@ USE DATABASE DV2_BANK_DEMO;
 -- =====================================================
 -- APPROACH 2: CREATE A NEW SATELLITE
 -- =====================================================
+--We don't create a new Satellite for every new column. We create a separate Satellite when that data deserves an ----independent history or lifecycle.
+--Now imagine CRM introduces RISK_CATEGORY, with values such as LOW, MEDIUM, and HIGH.
+/*
+Unlike customer contact information, risk classification might:
+- Be calculated by a separate risk assessment process.
+- Change much more frequently than a customer's email or city.
+- Have its own refresh schedule.
+- Require restricted access.
+- Need independent historical analysis for audit or regulatory purposes.
+*/
 
 -- STEP 1: CRM introduces another attribute
 
@@ -59,14 +69,9 @@ WITH INCOMING AS (
         SHA2(UPPER(TRIM(CUSTOMER_ID)),256) AS CUSTOMER_HK,
         RISK_CATEGORY,
         SOURCE_CHANGED_AT,
-
-        SHA2(
-            COALESCE(RISK_CATEGORY, '~NULL~'),256
-        ) AS HASH_DIFF
-
+        SHA2(COALESCE(RISK_CATEGORY, '~NULL~'),256) AS HASH_DIFF
     FROM LANDING.CRM_CUSTOMERS
     WHERE BATCH_ID = 8
-
     QUALIFY ROW_NUMBER() OVER (
         PARTITION BY CUSTOMER_HK
         ORDER BY SOURCE_CHANGED_AT DESC

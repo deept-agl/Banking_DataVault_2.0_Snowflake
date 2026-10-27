@@ -4,6 +4,11 @@ USE DATABASE DV2_BANK_DEMO;
 -- =====================================================
 -- APPROACH 1: EXTEND AN EXISTING SATELLITE
 -- =====================================================
+--New field CUSTOMER_SEGMENT is introduced
+--This attribute categorizes customers into business segments such as PREMIUM, STANDARD or GOLD.
+--Suppose CRM manages these values as part of the regular customer profile and updates them through the same feed.
+--It would be reasonable to extend SAT_CUSTOMER_CRM.
+
 
 -- STEP 1: Add the new attribute to the source table
 

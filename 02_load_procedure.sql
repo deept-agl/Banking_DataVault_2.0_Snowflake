@@ -10,6 +10,7 @@ EXECUTE AS OWNER
 AS
 $$
 DECLARE
+  --It stores the timestamp when the procedure starts.
   V_LOAD_DTS TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()::TIMESTAMP_NTZ;
 BEGIN
   -- A transaction makes a batch all-or-nothing if an insert fails.
